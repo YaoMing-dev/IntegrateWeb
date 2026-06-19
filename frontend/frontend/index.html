@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mail OCR NER</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #f0f0f0;
+      color: #1a1a1a;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 1.5rem;
+    }
+
+    .container {
+      background: #fff;
+      border-radius: 16px;
+      padding: clamp(2rem, 4vw, 3.5rem);
+      width: 100%;
+      max-width: clamp(600px, 55vw, 900px);
+      border: 1px solid #e0e0e0;
+    }
+
+    h1 { font-size: clamp(22px, 2.5vw, 32px); font-weight: 600; margin-bottom: 6px; }
+    .subtitle { font-size: clamp(13px, 1.2vw, 17px); color: #888; margin-bottom: 2rem; }
+
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: clamp(13px, 1.1vw, 16px);
+      color: #666;
+      margin-bottom: 2rem;
+    }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #ccc; flex-shrink: 0; }
+    .dot.ok  { background: #3a7d2c; }
+    .dot.err { background: #c0392b; }
+
+    .drop-zone {
+      border: 2px dashed #ccc;
+      border-radius: 12px;
+      padding: clamp(2.5rem, 5vw, 5rem) 1rem;
+      text-align: center;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+      margin-bottom: 1.25rem;
+    }
+    .drop-zone:hover, .drop-zone.drag-over { background: #f5f8ff; border-color: #4a7cf7; }
+    .drop-zone p { font-size: clamp(14px, 1.3vw, 18px); color: #555; }
+    .drop-zone span { color: #4a7cf7; cursor: pointer; }
+    .drop-zone small { font-size: clamp(12px, 1vw, 15px); color: #aaa; display: block; margin-top: 8px; }
+    #file-input { display: none; }
+
+    .preview {
+      display: none;
+      align-items: center;
+      gap: 14px;
+      background: #f7f7f7;
+      border-radius: 10px;
+      padding: 12px 16px;
+      margin-bottom: 1.25rem;
+    }
+    .preview img { width: clamp(48px, 5vw, 72px); height: clamp(48px, 5vw, 72px); object-fit: cover; border-radius: 8px; border: 1px solid #ddd; }
+    .preview-name { flex: 1; font-size: clamp(13px, 1.1vw, 16px); color: #333; word-break: break-all; }
+    .preview-remove { background: none; border: none; font-size: 22px; cursor: pointer; color: #aaa; line-height: 1; }
+    .preview-remove:hover { color: #c0392b; }
+
+    .btn-submit {
+      width: 100%;
+      padding: clamp(10px, 1.5vw, 16px);
+      font-size: clamp(14px, 1.3vw, 18px);
+      font-weight: 600;
+      background: #4a7cf7;
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .btn-submit:hover:not(:disabled) { background: #2f5fd4; }
+    .btn-submit:disabled { background: #b0c4fb; cursor: not-allowed; }
+
+    .spinner { display: none; text-align: center; padding: 1.25rem 0; font-size: clamp(13px, 1.1vw, 16px); color: #888; }
+
+    .error-box {
+      display: none;
+      background: #fff5f5;
+      border: 1px solid #f5c6c6;
+      border-radius: 10px;
+      padding: 12px 18px;
+      margin-top: 1.25rem;
+      font-size: clamp(13px, 1.1vw, 16px);
+      color: #c0392b;
+    }
+
+    .result-card {
+      display: none;
+      border: 1px solid #e8e8e8;
+      border-radius: 12px;
+      padding: clamp(1.25rem, 2.5vw, 2rem);
+      margin-top: 2rem;
+    }
+    .result-card h2 { font-size: clamp(15px, 1.4vw, 20px); font-weight: 600; margin-bottom: 1.25rem; color: #333; }
+
+    .result-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      padding: clamp(8px, 1vw, 12px) 0;
+      border-bottom: 1px solid #f2f2f2;
+      font-size: clamp(13px, 1.1vw, 16px);
+    }
+    .result-row:last-child { border-bottom: none; }
+    .result-label { color: #888; white-space: nowrap; }
+    .result-value { text-align: right; color: #1a1a1a; word-break: break-word; }
+    .result-value.empty { color: #ccc; }
+
+    .badge { display: inline-block; font-size: clamp(11px, 1vw, 14px); font-weight: 600; padding: 3px 12px; border-radius: 20px; }
+    .badge-ok   { background: #edfaf3; color: #2e7d4f; }
+    .badge-warn { background: #fff8e6; color: #a06000; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>Mail OCR NER</h1>
+  <p class="subtitle">Trích xuất thông tin phiếu gửi hàng tự động</p>
+
+  <div class="status">
+    <span class="dot" id="dot"></span>
+    <span id="status-text">Đang kiểm tra server...</span>
+  </div>
+
+  <div class="drop-zone" id="drop-zone">
+    <p>Kéo thả ảnh vào đây hoặc <span onclick="document.getElementById('file-input').click()">chọn file</span></p>
+    <small>JPG, PNG, HEIC — tối đa 20 MB</small>
+    <input type="file" id="file-input" accept=".jpg,.jpeg,.png,.heic" />
+  </div>
+
+  <div class="preview" id="preview">
+    <img id="preview-img" src="" alt="preview" />
+    <span class="preview-name" id="preview-name"></span>
+    <button class="preview-remove" onclick="clearFile()">×</button>
+  </div>
+
+  <button class="btn-submit" id="submit-btn" onclick="uploadFile()" disabled>Trích xuất thông tin</button>
+
+  <div class="spinner" id="spinner">Đang xử lý ảnh...</div>
+  <div class="error-box" id="error-box"></div>
+
+  <div class="result-card" id="result-card">
+    <h2>Kết quả</h2>
+    <div id="result-body"></div>
+  </div>
+</div>
+
+<script>
+  const API = 'http://127.0.0.1:4000/api';
+  const LABELS = {
+    ma_van_don:        'Mã vận đơn',
+    don_vi_van_chuyen: 'Đơn vị vận chuyển',
+    nguoi_gui:         'Người gửi',
+    sdt_gui:           'SĐT gửi',
+    email_gui:         'Email gửi',
+    dia_chi_gui:       'Địa chỉ gửi',
+    nguoi_nhan:        'Người nhận',
+    sdt_nhan:          'SĐT nhận',
+    email_nhan:        'Email nhận',
+    dia_chi_nhan:      'Địa chỉ nhận',
+    noi_dung_hang_hoa: 'Nội dung hàng hóa',
+    tien_thu_ho:       'Tiền thu hộ',
+    ngay_gio_gui:      'Ngày giờ gửi',
+    trang_thai:        'Trạng thái',
+    need_review:       'Cần review',
+  };
+
+  let selectedFile = null;
+
+  async function checkHealth() {
+    try {
+      const r = await fetch(API + '/health');
+      document.getElementById('dot').className = 'dot ' + (r.ok ? 'ok' : 'err');
+      document.getElementById('status-text').textContent = r.ok ? 'Server đang chạy (port 5000)' : 'Server phản hồi lỗi';
+    } catch {
+      document.getElementById('dot').className = 'dot err';
+      document.getElementById('status-text').textContent = 'Không kết nối được server';
+    }
+  }
+
+  function setFile(file) {
+    if (!file) return;
+    selectedFile = file;
+    const reader = new FileReader();
+    reader.onload = e => { document.getElementById('preview-img').src = e.target.result; };
+    reader.readAsDataURL(file);
+    document.getElementById('preview-name').textContent = file.name;
+    document.getElementById('preview').style.display = 'flex';
+    document.getElementById('submit-btn').disabled = false;
+    document.getElementById('result-card').style.display = 'none';
+    document.getElementById('error-box').style.display = 'none';
+  }
+
+  function clearFile() {
+    selectedFile = null;
+    document.getElementById('preview').style.display = 'none';
+    document.getElementById('submit-btn').disabled = true;
+    document.getElementById('file-input').value = '';
+  }
+
+  document.getElementById('file-input').addEventListener('change', e => setFile(e.target.files[0]));
+
+  const dz = document.getElementById('drop-zone');
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+  dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('drag-over'); setFile(e.dataTransfer.files[0]); });
+
+  async function uploadFile() {
+    if (!selectedFile) return;
+    document.getElementById('spinner').style.display = 'block';
+    document.getElementById('submit-btn').disabled = true;
+    document.getElementById('result-card').style.display = 'none';
+    document.getElementById('error-box').style.display = 'none';
+    const fd = new FormData();
+    fd.append('image', selectedFile);
+    try {
+      const r = await fetch(API + '/upload', { method: 'POST', body: fd });
+      const data = await r.json();
+      if (!r.ok) { showError(data.error || 'Lỗi không xác định'); return; }
+      showResult(data.fields || data);
+    } catch (e) {
+      showError('Không kết nối được server: ' + e.message);
+    } finally {
+      document.getElementById('spinner').style.display = 'none';
+      document.getElementById('submit-btn').disabled = false;
+    }
+  }
+
+  function showError(msg) {
+    const el = document.getElementById('error-box');
+    el.textContent = msg;
+    el.style.display = 'block';
+  }
+
+  function showResult(data) {
+    const body = document.getElementById('result-body');
+    body.innerHTML = '';
+    for (const [key, label] of Object.entries(LABELS)) {
+      const val = data[key];
+      const row = document.createElement('div');
+      row.className = 'result-row';
+      let valHtml;
+      if (key === 'need_review') {
+        valHtml = `<span class="badge ${val === 'YES' ? 'badge-warn' : 'badge-ok'}">${val ?? '—'}</span>`;
+      } else {
+        valHtml = val ? `<span class="result-value">${val}</span>` : `<span class="result-value empty">—</span>`;
+      }
+      row.innerHTML = `<span class="result-label">${label}</span>${valHtml}`;
+      body.appendChild(row);
+    }
+    document.getElementById('result-card').style.display = 'block';
+  }
+
+  checkHealth();
+</script>
+</body>
+</html>

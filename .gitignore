@@ -1,0 +1,10 @@
+.claude/
+.remember/
+node_modules/
+__pycache__/
+*.pyc
+flask_backend/uploads/
+flask_backend/debug_3field/
+debug_3field/
+.DS_Store
+*.log
