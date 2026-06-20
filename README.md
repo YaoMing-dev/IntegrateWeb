@@ -3,16 +3,19 @@
 Web app trích xuất thông tin phiếu gửi hàng (vận đơn) từ ảnh, theo kiến trúc 4 tầng:
 
 ```
-frontend/frontend (HTML)  →  backend (Node.js/Express, :4000)  →  flask_backend (Flask, :5000)  →  src/ + models/ (YOLO + EasyOCR)
+frontend/frontend/index.html (HTML)  →  backend (Node.js/Express, :4000)  →  flask_backend (Flask, :5000)  →  src/ + models/ (YOLO + OCR)
 ```
 
-Model (YOLO) load một lần lúc Flask khởi động (warmup), không load lại mỗi request — nên mỗi lần upload chỉ mất khoảng 1-2 giây.
+Frontend chỉ là một file HTML tĩnh; không cần thêm server riêng cho frontend.
+
+Model YOLO và 2 OCR backend được load một lần lúc Flask khởi động (warmup), không load lại mỗi request — nên mỗi lần upload chỉ mất khoảng 1-2 giây.
 
 ## Yêu cầu hệ thống
 
 - Python 3.10+ (cài global, không cần venv)
 - Node.js 18+ (cần `fetch`/`FormData` built-in)
 - Git LFS (để clone được file model `.pt`/`.pth`)
+- `vietocr` để chạy model `transformerocr.pth`
 
 ## Cài đặt
 
@@ -42,13 +45,13 @@ cd ..
 
 ## Chạy ứng dụng
 
-Mở 3 terminal, chạy theo thứ tự (Flask phải lên trước vì Express gọi vào nó):
+Mở 2 terminal, chạy theo thứ tự (Flask phải lên trước vì Express gọi vào nó):
 
 **Terminal 1 — Flask (ML service, :5000)**
 
 ```bash
 cd flask_backend
-python app.py
+python server.py
 ```
 
 Đợi tới khi thấy log `Model đã sẵn sàng. Đang khởi động Flask trên :5000`.
@@ -60,14 +63,7 @@ cd backend
 npm start
 ```
 
-**Terminal 3 — Frontend (static HTML, :3000)**
-
-```bash
-cd frontend/frontend
-python server.py
-```
-
-Mở trình duyệt: **http://127.0.0.1:3000**
+Mở trực tiếp `frontend/frontend/index.html` trong trình duyệt, miễn là backend đang chạy.
 
 ## Kiểm tra nhanh (không cần mở trình duyệt)
 
@@ -80,11 +76,11 @@ curl -F "image=@duong/dan/anh.jpg" http://127.0.0.1:4000/api/upload
 
 | Thư mục | Vai trò |
 |---|---|
-| `frontend/frontend/` | Giao diện HTML/CSS/JS tĩnh |
+| `frontend/frontend/index.html` | Giao diện HTML/CSS/JS tĩnh |
 | `backend/` | Express — proxy request từ frontend sang Flask (`/api/health`, `/api/upload`) |
 | `flask_backend/` | Flask — nhận ảnh, gọi pipeline, trả JSON kết quả |
-| `src/` | Pipeline xử lý: detect vùng bằng YOLO, OCR bằng EasyOCR |
-| `models/` | `yolo_regions/mail_3field/weights/best.pt` (đang dùng) và `vietocr/transformerocr.pth` (đi kèm, hiện chưa được pipeline gọi tới) |
+| `src/` | Pipeline xử lý: detect vùng bằng YOLO, OCR bằng EasyOCR hoặc VietOCR (VietOCR dùng EasyOCR để cắt line rồi nhận dạng) |
+| `models/` | `yolo_regions/mail_3field/weights/best.pt` và `vietocr/transformerocr.pth` |
 
 ## Cấu hình
 
