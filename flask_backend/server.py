@@ -19,6 +19,7 @@ UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "heic"}
+ALLOWED_OCR_MODELS = {"easyocr", "vietocr"}
 MAX_CONTENT_LENGTH = 20 * 1024 * 1024  # 20 MB
 app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
 
@@ -46,6 +47,7 @@ def upload():
         return jsonify({"error": "Thiếu field 'image' trong form-data"}), 400
 
     file = request.files["image"]
+    ocr_model = request.form.get("ocr_model", "easyocr").strip().lower()
 
     if file.filename == "":
         return jsonify({"error": "Chưa chọn file"}), 400
@@ -55,15 +57,20 @@ def upload():
             "error": f"Định dạng không hỗ trợ. Chỉ nhận: {', '.join(ALLOWED_EXTENSIONS)}"
         }), 415
 
+    if ocr_model not in ALLOWED_OCR_MODELS:
+        return jsonify({
+            "error": f"Model OCR không hỗ trợ. Chỉ nhận: {', '.join(sorted(ALLOWED_OCR_MODELS))}"
+        }), 400
+
     ext = file.filename.rsplit(".", 1)[1].lower()
     temp_filename = f"{uuid.uuid4().hex}.{ext}"
     temp_path = os.path.join(UPLOAD_FOLDER, temp_filename)
 
     try:
         file.save(temp_path)
-        logger.info(f"Saved upload: {temp_filename}")
+        logger.info(f"Saved upload: {temp_filename} (ocr_model={ocr_model})")
 
-        result = run_pipeline(temp_path)
+        result = run_pipeline(temp_path, ocr_model=ocr_model)
         logger.info(f"Pipeline OK: ma_van_don={result.get('ma_van_don')}")
         return jsonify(result), 200
 
@@ -85,9 +92,11 @@ def upload():
 def request_too_large(_):
     return jsonify({"error": "File quá lớn. Giới hạn 20 MB"}), 413
 
+
 @app.errorhandler(405)
 def method_not_allowed(_):
     return jsonify({"error": "Method không được phép"}), 405
+
 
 @app.errorhandler(404)
 def not_found(_):

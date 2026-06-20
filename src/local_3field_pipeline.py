@@ -8,6 +8,11 @@ from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
+from PIL import Image
+
+# VietOCR still expects the older Pillow constant.
+if not hasattr(Image, "ANTIALIAS"):
+    Image.ANTIALIAS = Image.Resampling.LANCZOS
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -25,6 +30,10 @@ except ModuleNotFoundError:
 
 Box = Tuple[int, int, int, int, float]
 _EASYOCR_READER = None
+_VIETOCR_PREDICTOR = None
+
+OCR_MODEL_EASYOCR = "easyocr"
+OCR_MODEL_VIETOCR = "vietocr"
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -94,14 +103,48 @@ def _get_easyocr_reader():
     return _EASYOCR_READER
 
 
-def warmup(model_path: str) -> None:
-    """Preload the YOLO model and EasyOCR reader once, so the first real
-    request isn't slow. Call this once at process startup, not per-request."""
+def _get_vietocr_predictor():
+    global _VIETOCR_PREDICTOR
+    if _VIETOCR_PREDICTOR is not None:
+        return _VIETOCR_PREDICTOR
+
+    import torch
+    from vietocr.tool.config import Cfg
+    from vietocr.tool.predictor import Predictor
+
+    weights_path = ROOT / "models" / "vietocr" / "transformerocr.pth"
+    if not weights_path.exists():
+        raise FileNotFoundError(f"Không tìm thấy model VietOCR tại: {weights_path}")
+
+    config = Cfg.load_config_from_name("vgg_transformer")
+    config["weights"] = str(weights_path)
+    config["cnn"]["pretrained"] = False
+    config["device"] = "cuda" if torch.cuda.is_available() else "cpu"
+    config["predictor"]["beamsearch"] = False
+    _VIETOCR_PREDICTOR = Predictor(config)
+    return _VIETOCR_PREDICTOR
+
+
+def _normalize_ocr_model_name(ocr_model: str) -> str:
+    value = (ocr_model or OCR_MODEL_EASYOCR).strip().lower()
+    if value in {"easyocr", "easy", "default"}:
+        return OCR_MODEL_EASYOCR
+    if value in {"vietocr", "viet", "transformerocr"}:
+        return OCR_MODEL_VIETOCR
+    raise ValueError(f"Model OCR không hỗ trợ: {ocr_model}")
+
+
+def warmup(model_path: str, ocr_models: tuple[str, ...] = (OCR_MODEL_EASYOCR, OCR_MODEL_VIETOCR)) -> None:
+    """Preload YOLO and the requested OCR backends once at process startup."""
     _get_yolo_model(model_path)
-    _get_easyocr_reader()
+    normalized = {_normalize_ocr_model_name(model) for model in ocr_models}
+    if OCR_MODEL_EASYOCR in normalized:
+        _get_easyocr_reader()
+    if OCR_MODEL_VIETOCR in normalized:
+        _get_vietocr_predictor()
 
 
-def _ocr_crop(crop_bgr: np.ndarray, reader, min_conf: float = 0.25) -> Dict[str, object]:
+def _ocr_crop_easyocr(crop_bgr: np.ndarray, reader, min_conf: float = 0.25) -> Dict[str, object]:
     if crop_bgr.size == 0:
         return {"text": "", "lines": [], "confidence": 0.0}
 
@@ -121,6 +164,42 @@ def _ocr_crop(crop_bgr: np.ndarray, reader, min_conf: float = 0.25) -> Dict[str,
         if confidence > float(best["confidence"]):
             best = {"text": text, "lines": lines, "confidence": confidence}
     return best
+
+
+def _ocr_crop_vietocr(crop_bgr: np.ndarray, detector, recognizer, min_det_conf: float = 0.12) -> Dict[str, object]:
+    if crop_bgr.size == 0:
+        return {"text": "", "lines": [], "confidence": 0.0}
+
+    try:
+        raw = detector.readtext(crop_bgr, paragraph=False)
+    except Exception:
+        raw = []
+
+    h, w = crop_bgr.shape[:2]
+    items = []
+    for points, easy_text, conf in raw:
+        if float(conf) < min_det_conf:
+            continue
+        xs = [int(p[0]) for p in points]
+        ys = [int(p[1]) for p in points]
+        x1 = max(0, min(xs) - 8)
+        y1 = max(0, min(ys) - 8)
+        x2 = min(w, max(xs) + 8)
+        y2 = min(h, max(ys) + 8)
+        line_crop = crop_bgr[y1:y2, x1:x2]
+        if line_crop.size == 0:
+            continue
+        pil = Image.fromarray(cv2.cvtColor(line_crop, cv2.COLOR_BGR2RGB))
+        text = _normalize_text(str(recognizer.predict(pil)))
+        if not text:
+            text = _normalize_text(str(easy_text))
+        if text:
+            items.append((y1, x1, text, float(conf)))
+
+    items.sort(key=lambda item: (item[0], item[1]))
+    lines = [text for _, _, text, _ in items if text]
+    confidence = sum(conf for *_, conf in items) / len(items) if items else 0.0
+    return {"text": "\n".join(lines), "lines": lines, "confidence": confidence}
 
 
 def _decode_barcode(crop_bgr: np.ndarray) -> Optional[str]:
@@ -392,12 +471,14 @@ def parse_fields(ocr: Dict[str, Dict[str, object]]) -> Dict[str, Optional[str]]:
 def process_image(
     image_path: str,
     model_path: str,
+    ocr_model: str = OCR_MODEL_EASYOCR,
     out_dir: str = "debug_3field",
     save_debug: bool = True,
 ) -> Dict[str, object]:
     src = Path(image_path)
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
+    ocr_model = _normalize_ocr_model_name(ocr_model)
 
     img_rgb = load_and_prepare(src)
     img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
@@ -436,7 +517,8 @@ def process_image(
             )
         cv2.imwrite(str(out / f"{src.stem}_preview.jpg"), preview)
 
-    reader = _get_easyocr_reader()
+    easyocr_reader = _get_easyocr_reader()
+    vietocr_predictor = _get_vietocr_predictor() if ocr_model == OCR_MODEL_VIETOCR else None
     ocr: Dict[str, Dict[str, object]] = {}
     crops_meta = {}
 
@@ -455,7 +537,12 @@ def process_image(
         if save_debug:
             cv2.imwrite(str(out / f"{src.stem}_{cls_name}.jpg"), crop)
             cv2.imwrite(str(out / f"{src.stem}_{cls_name}_bw.jpg"), _bw_for_ocr(crop))
-        ocr[cls_name] = _ocr_crop(crop, reader)
+        if ocr_model == OCR_MODEL_EASYOCR:
+            ocr[cls_name] = _ocr_crop_easyocr(crop, easyocr_reader)
+        elif cls_name == "tracking_number":
+            ocr[cls_name] = _ocr_crop_easyocr(crop, easyocr_reader)
+        else:
+            ocr[cls_name] = _ocr_crop_vietocr(crop, easyocr_reader, vietocr_predictor)
         if cls_name == "tracking_number":
             barcode_value = _decode_barcode(crop)
             if barcode_value:
@@ -492,11 +579,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Local 3-field mail extraction: YOLO crop -> EasyOCR -> JSON.")
     parser.add_argument("image")
     parser.add_argument("--model", default="models/yolo_regions/mail_3field/weights/best.pt")
+    parser.add_argument("--ocr-model", default=OCR_MODEL_EASYOCR, choices=[OCR_MODEL_EASYOCR, OCR_MODEL_VIETOCR])
     parser.add_argument("--out_dir", default="debug_3field")
     parser.add_argument("--no_debug", action="store_true")
     args = parser.parse_args()
 
-    result = process_image(args.image, args.model, out_dir=args.out_dir, save_debug=not args.no_debug)
+    result = process_image(args.image, args.model, ocr_model=args.ocr_model, out_dir=args.out_dir, save_debug=not args.no_debug)
     print(json.dumps(result["fields"], ensure_ascii=False, indent=2))
     print(f"need_review={result['need_review']}")
 

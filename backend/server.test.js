@@ -32,6 +32,7 @@ test("POST /api/upload forwards field name 'image' and the original filename to 
 
   const form = new FormData();
   form.append("image", new Blob([Buffer.from("fake-bytes")]), "label.jpg");
+  form.append("ocr_model", "vietocr");
 
   const res = await fetch(`http://127.0.0.1:${port}/api/upload`, {
     method: "POST",
@@ -45,6 +46,7 @@ test("POST /api/upload forwards field name 'image' and the original filename to 
   assert.equal(captured.url, "http://127.0.0.1:5000/upload");
   const forwardedFile = captured.init.body.get("image");
   assert.equal(forwardedFile.name, "label.jpg");
+  assert.equal(captured.init.body.get("ocr_model"), "vietocr");
 });
 
 test("POST /api/upload without a file returns 400", async () => {
@@ -80,4 +82,28 @@ test("POST /api/upload returns 502 when Flask is unreachable", async () => {
 
   assert.equal(res.status, 502);
   assert.ok(body.error);
+});
+
+test("POST /api/upload forwards non-JSON Flask errors instead of masking them", async () => {
+  const fetchImpl = async () =>
+    new Response("<html><body>Traceback</body></html>", {
+      status: 500,
+      headers: { "content-type": "text/html; charset=utf-8" },
+    });
+  const app = createApp({ fetchImpl });
+  const server = app.listen(0);
+  const { port } = server.address();
+
+  const form = new FormData();
+  form.append("image", new Blob([Buffer.from("x")]), "a.jpg");
+
+  const res = await fetch(`http://127.0.0.1:${port}/api/upload`, {
+    method: "POST",
+    body: form,
+  });
+  const body = await res.json();
+  server.close();
+
+  assert.equal(res.status, 500);
+  assert.match(body.error, /Traceback|ML service trả về lỗi/i);
 });

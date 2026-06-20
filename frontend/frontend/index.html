@@ -42,6 +42,26 @@
     .dot.ok  { background: #3a7d2c; }
     .dot.err { background: #c0392b; }
 
+    .model-picker {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 1.5rem;
+      font-size: clamp(13px, 1.1vw, 16px);
+      color: #555;
+    }
+    .model-picker label { font-weight: 600; }
+    .model-picker select {
+      min-width: 220px;
+      padding: 10px 12px;
+      border: 1px solid #d6d6d6;
+      border-radius: 10px;
+      background: #fff;
+      font: inherit;
+    }
+    .model-picker small { color: #888; }
+
     .drop-zone {
       border: 2px dashed #ccc;
       border-radius: 12px;
@@ -52,6 +72,7 @@
       margin-bottom: 1.25rem;
     }
     .drop-zone:hover, .drop-zone.drag-over { background: #f5f8ff; border-color: #4a7cf7; }
+    .drop-zone:focus { outline: 2px solid #4a7cf7; outline-offset: 2px; }
     .drop-zone p { font-size: clamp(14px, 1.3vw, 18px); color: #555; }
     .drop-zone span { color: #4a7cf7; cursor: pointer; }
     .drop-zone small { font-size: clamp(12px, 1vw, 15px); color: #aaa; display: block; margin-top: 8px; }
@@ -66,7 +87,19 @@
       padding: 12px 16px;
       margin-bottom: 1.25rem;
     }
-    .preview img { width: clamp(48px, 5vw, 72px); height: clamp(48px, 5vw, 72px); object-fit: cover; border-radius: 8px; border: 1px solid #ddd; }
+    .preview-thumb {
+      width: clamp(72px, 7vw, 88px);
+      height: clamp(72px, 7vw, 88px);
+      flex-shrink: 0;
+      border-radius: 8px;
+      border: 1px solid #ddd;
+      overflow: hidden;
+      background: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .preview-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .preview-name { flex: 1; font-size: clamp(13px, 1.1vw, 16px); color: #333; word-break: break-all; }
     .preview-remove { background: none; border: none; font-size: 22px; cursor: pointer; color: #aaa; line-height: 1; }
     .preview-remove:hover { color: #c0392b; }
@@ -137,14 +170,25 @@
     <span id="status-text">Đang kiểm tra server...</span>
   </div>
 
-  <div class="drop-zone" id="drop-zone">
-    <p>Kéo thả ảnh vào đây hoặc <span onclick="document.getElementById('file-input').click()">chọn file</span></p>
+  <div class="model-picker">
+    <label for="ocr-model">Chọn model OCR</label>
+    <select id="ocr-model">
+      <option value="easyocr" selected>EasyOCR — ổn định, mặc định</option>
+      <option value="vietocr">VietOCR — dùng transformerocr.pth</option>
+    </select>
+    <small>Model sẽ được gửi lên ML service cùng ảnh.</small>
+  </div>
+
+  <div class="drop-zone" id="drop-zone" role="button" tabindex="0">
+    <p>Kéo thả ảnh vào đây hoặc <span id="choose-file-link">chọn file</span></p>
     <small>JPG, PNG, HEIC — tối đa 20 MB</small>
     <input type="file" id="file-input" accept=".jpg,.jpeg,.png,.heic" />
   </div>
 
   <div class="preview" id="preview">
-    <img id="preview-img" src="" alt="preview" />
+    <div class="preview-thumb">
+      <img id="preview-img" src="" alt="preview" />
+    </div>
     <span class="preview-name" id="preview-name"></span>
     <button class="preview-remove" onclick="clearFile()">×</button>
   </div>
@@ -181,6 +225,40 @@
   };
 
   let selectedFile = null;
+  let previewObjectUrl = null;
+
+  function buildPlaceholderDataUrl(fileName) {
+    const ext = (fileName.split('.').pop() || '').toUpperCase().slice(0, 4) || 'FILE';
+    const svg = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160">
+        <rect width="160" height="160" rx="12" fill="#f3f4f6"/>
+        <rect x="18" y="18" width="124" height="124" rx="10" fill="#ffffff" stroke="#d1d5db"/>
+        <text x="80" y="78" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="28" fill="#6b7280" font-weight="600">${ext}</text>
+        <text x="80" y="108" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="12" fill="#9ca3af">preview</text>
+      </svg>`;
+    return 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg);
+  }
+
+  function setPreviewSource(file) {
+    const img = document.getElementById('preview-img');
+    if (previewObjectUrl) {
+      URL.revokeObjectURL(previewObjectUrl);
+      previewObjectUrl = null;
+    }
+
+    const isHeic = /heic|heif/i.test(file.type || file.name || '');
+    if (isHeic) {
+      img.src = buildPlaceholderDataUrl(file.name);
+      return;
+    }
+
+    previewObjectUrl = URL.createObjectURL(file);
+    img.onerror = () => {
+      img.onerror = null;
+      img.src = buildPlaceholderDataUrl(file.name);
+    };
+    img.src = previewObjectUrl;
+  }
 
   async function checkHealth() {
     try {
@@ -196,9 +274,7 @@
   function setFile(file) {
     if (!file) return;
     selectedFile = file;
-    const reader = new FileReader();
-    reader.onload = e => { document.getElementById('preview-img').src = e.target.result; };
-    reader.readAsDataURL(file);
+    setPreviewSource(file);
     document.getElementById('preview-name').textContent = file.name;
     document.getElementById('preview').style.display = 'flex';
     document.getElementById('submit-btn').disabled = false;
@@ -208,12 +284,27 @@
 
   function clearFile() {
     selectedFile = null;
+    if (previewObjectUrl) {
+      URL.revokeObjectURL(previewObjectUrl);
+      previewObjectUrl = null;
+    }
     document.getElementById('preview').style.display = 'none';
     document.getElementById('submit-btn').disabled = true;
     document.getElementById('file-input').value = '';
   }
 
   document.getElementById('file-input').addEventListener('change', e => setFile(e.target.files[0]));
+  document.getElementById('drop-zone').addEventListener('click', () => document.getElementById('file-input').click());
+  document.getElementById('drop-zone').addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      document.getElementById('file-input').click();
+    }
+  });
+  document.getElementById('choose-file-link').addEventListener('click', e => {
+    e.stopPropagation();
+    document.getElementById('file-input').click();
+  });
 
   const dz = document.getElementById('drop-zone');
   dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
@@ -228,6 +319,7 @@
     document.getElementById('error-box').style.display = 'none';
     const fd = new FormData();
     fd.append('image', selectedFile);
+    fd.append('ocr_model', document.getElementById('ocr-model').value);
     try {
       const r = await fetch(API + '/upload', { method: 'POST', body: fd });
       const data = await r.json();
