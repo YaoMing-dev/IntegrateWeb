@@ -3,7 +3,7 @@
 Web app trích xuất thông tin phiếu gửi hàng (vận đơn) từ ảnh, theo kiến trúc 4 tầng:
 
 ```
-frontend/frontend/index.html (HTML)  →  backend (Node.js/Express, :4000)  →  flask_backend (Flask, :5000)  →  src/ + models/ (YOLO + OCR)
+frontend/frontend/index.html (HTML)  →  flask_backend (Flask, :5000)  →  src/ + models/ (YOLO + OCR)
 ```
 
 Frontend chỉ là một file HTML tĩnh; không cần thêm server riêng cho frontend.
@@ -13,7 +13,6 @@ Model YOLO và 2 OCR backend được load một lần lúc Flask khởi động
 ## Yêu cầu hệ thống
 
 - Python 3.10+ (cài global, không cần venv)
-- Node.js 18+ (cần `fetch`/`FormData` built-in)
 - Git LFS (để clone được file model `.pt`/`.pth`)
 - `vietocr` để chạy model `transformerocr.pth`
 
@@ -35,17 +34,9 @@ pip install -r flask_backend/requirements.txt
 
 > Lưu ý: nếu máy đã cài `paddleocr`/`paddlex` cho project khác, các package này yêu cầu `numpy<2`. Sau khi cài xong, kiểm tra lại bằng `pip show numpy` — nếu bị nâng lên numpy 2.x, chạy `pip install "numpy<2"`.
 
-### 3. Cài Node.js dependencies (Express)
-
-```bash
-cd backend
-npm install
-cd ..
-```
-
 ## Chạy ứng dụng
 
-Mở 2 terminal, chạy theo thứ tự (Flask phải lên trước vì Express gọi vào nó):
+Mở 1 terminal cho Flask, rồi mở file HTML trong trình duyệt:
 
 **Terminal 1 — Flask (ML service, :5000)**
 
@@ -56,20 +47,13 @@ python server.py
 
 Đợi tới khi thấy log `Model đã sẵn sàng. Đang khởi động Flask trên :5000`.
 
-**Terminal 2 — Express (backend, :4000)**
-
-```bash
-cd backend
-npm start
-```
-
-Mở trực tiếp `frontend/frontend/index.html` trong trình duyệt, miễn là backend đang chạy.
+Mở trực tiếp `frontend/frontend/index.html` trong trình duyệt, miễn là Flask đang chạy.
 
 ## Kiểm tra nhanh (không cần mở trình duyệt)
 
 ```bash
-curl http://127.0.0.1:4000/api/health
-curl -F "image=@duong/dan/anh.jpg" http://127.0.0.1:4000/api/upload
+curl http://127.0.0.1:5000/health
+curl -F "image=@duong/dan/anh.jpg" -F "ocr_model=easyocr" http://127.0.0.1:5000/upload
 ```
 
 ## Cấu trúc thư mục
@@ -77,7 +61,6 @@ curl -F "image=@duong/dan/anh.jpg" http://127.0.0.1:4000/api/upload
 | Thư mục | Vai trò |
 |---|---|
 | `frontend/frontend/index.html` | Giao diện HTML/CSS/JS tĩnh |
-| `backend/` | Express — proxy request từ frontend sang Flask (`/api/health`, `/api/upload`) |
 | `flask_backend/` | Flask — nhận ảnh, gọi pipeline, trả JSON kết quả |
 | `src/` | Pipeline xử lý: detect vùng bằng YOLO, OCR bằng EasyOCR hoặc VietOCR (VietOCR dùng EasyOCR để cắt line rồi nhận dạng) |
 | `models/` | `yolo_regions/mail_3field/weights/best.pt` và `vietocr/transformerocr.pth` |
@@ -86,12 +69,11 @@ curl -F "image=@duong/dan/anh.jpg" http://127.0.0.1:4000/api/upload
 
 | Biến môi trường | Default | Dùng ở |
 |---|---|---|
-| `FLASK_URL` | `http://127.0.0.1:5000` | `backend/server.js` |
-| `PORT` | `4000` | `backend/server.js` |
+| `FLASK_HOST` | `0.0.0.0` | `flask_backend/server.py` |
+| `FLASK_PORT` | `5000` | `flask_backend/server.py` |
 
 ## Test
 
 ```bash
-cd backend
-npm test
+python -m py_compile flask_backend/server.py flask_backend/pipeline.py src/local_3field_pipeline.py
 ```
