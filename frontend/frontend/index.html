@@ -205,7 +205,7 @@
 </div>
 
 <script>
-  const API = 'http://127.0.0.1:4000/api';
+  const API = 'http://127.0.0.1:5000';
   const LABELS = {
     ma_van_don:        'Mã vận đơn',
     don_vi_van_chuyen: 'Đơn vị vận chuyển',
@@ -264,7 +264,7 @@
     try {
       const r = await fetch(API + '/health');
       document.getElementById('dot').className = 'dot ' + (r.ok ? 'ok' : 'err');
-      document.getElementById('status-text').textContent = r.ok ? 'Server đang chạy (port 5000)' : 'Server phản hồi lỗi';
+      document.getElementById('status-text').textContent = r.ok ? 'Flask đang chạy (port 5000)' : 'Server phản hồi lỗi';
     } catch {
       document.getElementById('dot').className = 'dot err';
       document.getElementById('status-text').textContent = 'Không kết nối được server';
