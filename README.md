@@ -52,7 +52,7 @@ python server.py
 Đợi tới khi thấy log `Server Flask đang chạy tại port 5000`. 
 
 ### Bước 3: Sử dụng giao diện
-Mở trực tiếp file `frontend/index.html` trong trình duyệt. Nhập dữ liệu và nhấn **"Tính toán kết quả"**.
+Mở trực tiếp URL backend (hoặc chạy local rồi vào `http://127.0.0.1:5000/`). Frontend và backend chạy chung một app Flask.
 
 ## Kiểm tra nhanh (Health Check)
 
@@ -73,8 +73,18 @@ curl -X POST -H "Content-Type: application/json" -d "{\"time\":60, \"steps\":500
 | `frontend/index.html` | Giao diện người dùng (HTML/CSS/JS) |
 | `flask_backend/server.py` | Flask API — nhận dữ liệu, gọi model, trả kết quả dự đoán |
 | `flask_backend/requirements.txt` | Danh sách các thư viện cần cài đặt |
+| `render.yaml` | Cấu hình deploy Render 1 service |
 | `models/train_model.py` | Script huấn luyện mô hình Linear Regression từ dữ liệu giả định |
 | `models/model_calo.pkl` | File mô hình đã được đóng băng (máy học xong sẽ lưu vào đây) |
+
+## Deploy Render
+
+Repo đã sẵn cấu hình để deploy thành **1 Web Service** trên Render:
+
+- **Build Command:** `pip install -r flask_backend/requirements.txt`
+- **Start Command:** `gunicorn --chdir flask_backend server:app`
+
+Khi chạy trên Render, mở URL gốc của service là dùng được ngay.
 
 ## Cấu hình (Config)
 

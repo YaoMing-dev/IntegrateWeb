@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: integrateweb
+    runtime: python
+    buildCommand: pip install -r flask_backend/requirements.txt
+    startCommand: gunicorn --chdir flask_backend server:app
