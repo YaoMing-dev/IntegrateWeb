@@ -1,110 +1,39 @@
-import os
-import uuid
-import logging
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-
-from pipeline import run_pipeline, PipelineError, warmup
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-)
-logger = logging.getLogger(__name__)
+import pickle
+import numpy as np
+import os
 
 app = Flask(__name__)
-CORS(app)
+CORS(app) 
 
-UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "uploads")
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+base_dir = os.path.dirname(os.path.abspath(__file__))
+model_path = os.path.join(base_dir, '..', 'models', 'model_calo.pkl')
 
-ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "heic"}
-ALLOWED_OCR_MODELS = {"easyocr", "vietocr"}
-MAX_CONTENT_LENGTH = 20 * 1024 * 1024  # 20 MB
-app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
+with open(model_path, 'rb') as f:
+    model = pickle.load(f)
 
-
-def allowed_file(filename: str) -> bool:
-    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
-
-
-@app.route("/health", methods=["GET"])
-def health():
-    """Kiểm tra server còn sống không — FE hoặc devops dùng."""
-    return jsonify({"status": "ok"}), 200
-
-
-@app.route("/upload", methods=["POST"])
-def upload():
-    """
-    Upload ảnh phiếu gửi hàng → chạy OCR pipeline → trả JSON.
-
-    Request  : multipart/form-data, field "image"
-    Response : JSON kết quả (xem README để biết các field)
-    """
-
-    if "image" not in request.files:
-        return jsonify({"error": "Thiếu field 'image' trong form-data"}), 400
-
-    file = request.files["image"]
-    ocr_model = request.form.get("ocr_model", "easyocr").strip().lower()
-
-    if file.filename == "":
-        return jsonify({"error": "Chưa chọn file"}), 400
-
-    if not allowed_file(file.filename):
-        return jsonify({
-            "error": f"Định dạng không hỗ trợ. Chỉ nhận: {', '.join(ALLOWED_EXTENSIONS)}"
-        }), 415
-
-    if ocr_model not in ALLOWED_OCR_MODELS:
-        return jsonify({
-            "error": f"Model OCR không hỗ trợ. Chỉ nhận: {', '.join(sorted(ALLOWED_OCR_MODELS))}"
-        }), 400
-
-    ext = file.filename.rsplit(".", 1)[1].lower()
-    temp_filename = f"{uuid.uuid4().hex}.{ext}"
-    temp_path = os.path.join(UPLOAD_FOLDER, temp_filename)
-
+@app.route('/predict', methods=['POST'])
+def predict():
     try:
-        file.save(temp_path)
-        logger.info(f"Saved upload: {temp_filename} (ocr_model={ocr_model})")
-
-        result = run_pipeline(temp_path, ocr_model=ocr_model)
-        logger.info(f"Pipeline OK: ma_van_don={result.get('ma_van_don')}")
-        return jsonify(result), 200
-
-    except PipelineError as e:
-        logger.error(f"Pipeline error: {e}")
-        return jsonify({"error": str(e)}), 422
-
+        data = request.json
+        time = float(data['time'])
+        steps = float(data['steps'])
+        
+        input_data = np.array([[time, steps]])
+        prediction = model.predict(input_data)
+        
+        return jsonify({
+            'success': True,
+            'calories': round(prediction[0], 2)
+        })
     except Exception as e:
-        logger.exception("Unexpected error")
-        return jsonify({"error": "Lỗi server nội bộ", "detail": str(e)}), 500
+        return jsonify({'success': False, 'error': str(e)})
 
-    finally:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-            logger.debug(f"Removed temp file: {temp_filename}")
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({"status": "ok", "message": "Server Flask đang chạy tốt"})
 
-
-@app.errorhandler(413)
-def request_too_large(_):
-    return jsonify({"error": "File quá lớn. Giới hạn 20 MB"}), 413
-
-
-@app.errorhandler(405)
-def method_not_allowed(_):
-    return jsonify({"error": "Method không được phép"}), 405
-
-
-@app.errorhandler(404)
-def not_found(_):
-    return jsonify({"error": "Endpoint không tồn tại"}), 404
-
-
-if __name__ == "__main__":
-    logger.info("Đang nạp model (YOLO + EasyOCR)...")
-    warmup()
-    logger.info("Model đã sẵn sàng. Đang khởi động Flask trên :5000")
-    app.run(debug=False, port=5000, host="0.0.0.0")
+if __name__ == '__main__':
+    print("Server Flask đang chạy tại port 5000...")
+    app.run(debug=True, port=5000)

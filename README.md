@@ -1,27 +1,23 @@
-# Mail OCR NER — Integrate ML model to Web app
+# Calorie Prediction — Integrate ML model to Web app
 
-Web app trích xuất thông tin phiếu gửi hàng (vận đơn) từ ảnh, theo kiến trúc 4 tầng:
+Web app dự đoán lượng calo tiêu thụ dựa trên thời gian tập luyện và số bước chân, sử dụng thuật toán **Linear Regression** theo kiến trúc 3 tầng:
 
 ```
-frontend/frontend/index.html (HTML)  →  flask_backend (Flask, :5000)  →  src/ + models/ (YOLO + OCR)
+frontend/index.html (HTML/CSS)  →  flask_backend (Flask, :5000)  →  models/model_calo.pkl (Linear Regression)
 ```
 
-Frontend chỉ là một file HTML tĩnh; không cần thêm server riêng cho frontend.
-
-Model YOLO và 2 OCR backend được load một lần lúc Flask khởi động (warmup), không load lại mỗi request — nên mỗi lần upload chỉ mất khoảng 1-2 giây.
+Frontend là một file HTML tĩnh tích hợp CSS; không cần thêm server riêng cho frontend. Backend sử dụng Flask để nạp mô hình đã được huấn luyện sẵn (pickle file) và trả kết quả dự đoán dưới dạng JSON.
 
 ## Yêu cầu hệ thống
 
-- Python 3.10+ (cài global, không cần venv)
-- Git LFS (để clone được file model `.pt`/`.pth`)
-- `vietocr` để chạy model `transformerocr.pth`
+- Python 3.10+
+- Thư viện: `flask`, `flask-cors`, `scikit-learn`, `pandas`, `numpy`
 
 ## Cài đặt
 
-### 1. Clone repo (kèm Git LFS)
+### 1. Clone repo
 
 ```bash
-git lfs install
 git clone https://github.com/YaoMing-dev/IntegrateWeb.git
 cd IntegrateWeb
 ```
@@ -32,48 +28,57 @@ cd IntegrateWeb
 pip install -r flask_backend/requirements.txt
 ```
 
-> Lưu ý: nếu máy đã cài `paddleocr`/`paddlex` cho project khác, các package này yêu cầu `numpy<2`. Sau khi cài xong, kiểm tra lại bằng `pip show numpy` — nếu bị nâng lên numpy 2.x, chạy `pip install "numpy<2"`.
+## Quy trình chạy ứng dụng
 
-## Chạy ứng dụng
+Quy trình gồm 2 giai đoạn: Huấn luyện mô hình để tạo file đóng băng, sau đó khởi động server.
 
-Mở 1 terminal cho Flask, rồi mở file HTML trong trình duyệt:
-
-**Terminal 1 — Flask (ML service, :5000)**
+### Bước 1: Huấn luyện mô hình (Training)
+Trước khi chạy website, bạn cần tạo ra file mô hình `.pkl`:
 
 ```bash
-cd flask_backend
+cd models
+python train_model.py
+```
+> **Kết quả:** File `model_calo.pkl` sẽ xuất hiện trong thư mục `models`.
+
+### Bước 2: Chạy Backend Server (Flask)
+Mở terminal và khởi động dịch vụ máy học:
+
+```bash
+cd ../flask_backend
 python server.py
 ```
 
-Đợi tới khi thấy log `Model đã sẵn sàng. Đang khởi động Flask trên :5000`.
+Đợi tới khi thấy log `Server Flask đang chạy tại port 5000`. 
 
-Mở trực tiếp `frontend/frontend/index.html` trong trình duyệt, miễn là Flask đang chạy.
+### Bước 3: Sử dụng giao diện
+Mở trực tiếp file `frontend/index.html` trong trình duyệt. Nhập dữ liệu và nhấn **"Tính toán kết quả"**.
 
-## Kiểm tra nhanh (không cần mở trình duyệt)
+## Kiểm tra nhanh (Health Check)
+
+Bạn có thể kiểm tra trạng thái server bằng lệnh curl:
 
 ```bash
+# Kiểm tra server có sống không
 curl http://127.0.0.1:5000/health
-curl -F "image=@duong/dan/anh.jpg" -F "ocr_model=easyocr" http://127.0.0.1:5000/upload
+
+# Thử dự đoán thủ công (VD: 60 phút, 5000 bước)
+curl -X POST -H "Content-Type: application/json" -d "{\"time\":60, \"steps\":5000}" http://127.0.0.1:5000/predict
 ```
 
 ## Cấu trúc thư mục
 
-| Thư mục | Vai trò |
+| Thư mục / Tập tin | Vai trò |
 |---|---|
-| `frontend/frontend/index.html` | Giao diện HTML/CSS/JS tĩnh |
-| `flask_backend/` | Flask — nhận ảnh, gọi pipeline, trả JSON kết quả |
-| `src/` | Pipeline xử lý: detect vùng bằng YOLO, OCR bằng EasyOCR hoặc VietOCR (VietOCR dùng EasyOCR để cắt line rồi nhận dạng) |
-| `models/` | `yolo_regions/mail_3field/weights/best.pt` và `vietocr/transformerocr.pth` |
+| `frontend/index.html` | Giao diện người dùng (HTML/CSS/JS) |
+| `flask_backend/server.py` | Flask API — nhận dữ liệu, gọi model, trả kết quả dự đoán |
+| `flask_backend/requirements.txt` | Danh sách các thư viện cần cài đặt |
+| `models/train_model.py` | Script huấn luyện mô hình Linear Regression từ dữ liệu giả định |
+| `models/model_calo.pkl` | File mô hình đã được đóng băng (máy học xong sẽ lưu vào đây) |
 
-## Cấu hình
+## Cấu hình (Config)
 
-| Biến môi trường | Default | Dùng ở |
+| Tham số | Giá trị mặc định | Tệp cấu hình |
 |---|---|---|
-| `FLASK_HOST` | `0.0.0.0` | `flask_backend/server.py` |
-| `FLASK_PORT` | `5000` | `flask_backend/server.py` |
-
-## Test
-
-```bash
-python -m py_compile flask_backend/server.py flask_backend/pipeline.py src/local_3field_pipeline.py
-```
+| `Port` | `5000` | `flask_backend/server.py` |
+| `Model Path` | `../models/model_calo.pkl` | `flask_backend/server.py` |

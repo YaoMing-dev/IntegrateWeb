@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Calo Predictor - Linear Regression</title>
+  <style>
+    /* Giữ nguyên Style bạn đã gửi và chỉnh sửa một chút cho Input */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', sans-serif; background: #f0f0f0; color: #1a1a1a; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem; }
+    .container { background: #fff; border-radius: 16px; padding: 3rem; width: 100%; max-width: 500px; border: 1px solid #e0e0e0; box-shadow: 0 4px 20px rgba(0,0,0,0.05); }
+    h1 { font-size: 24px; font-weight: 600; margin-bottom: 6px; color: #4a7cf7; }
+    .subtitle { font-size: 14px; color: #888; margin-bottom: 2rem; }
+    
+    .input-group { margin-bottom: 1.5rem; }
+    .input-group label { display: block; font-weight: 600; margin-bottom: 8px; color: #555; font-size: 14px; }
+    .input-group input { width: 100%; padding: 12px; border: 1px solid #d6d6d6; border-radius: 10px; font-size: 16px; outline: none; transition: border 0.2s; }
+    .input-group input:focus { border-color: #4a7cf7; }
+
+    .btn-submit { width: 100%; padding: 14px; font-size: 16px; font-weight: 600; background: #4a7cf7; color: #fff; border: none; border-radius: 10px; cursor: pointer; transition: background 0.15s; }
+    .btn-submit:hover { background: #2f5fd4; }
+
+    .result-card { display: none; background: #edfaf3; border: 1px solid #c3e6cb; border-radius: 12px; padding: 1.5rem; margin-top: 2rem; text-align: center; }
+    .result-card h2 { font-size: 18px; color: #2e7d4f; margin-bottom: 5px; }
+    .calories-val { font-size: 32px; font-weight: 700; color: #1a1a1a; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>Dự đoán Calo tiêu thụ</h1>
+
+  <div class="input-group">
+    <label>Thời gian tập (phút)</label>
+    <input type="number" id="time" placeholder="VD: 45">
+  </div>
+
+  <div class="input-group">
+    <label>Số bước chân</label>
+    <input type="number" id="steps" placeholder="VD: 5000">
+  </div>
+
+  <button class="btn-submit" onclick="predictCalo()">Tính toán kết quả</button>
+
+  <div class="result-card" id="result-card">
+    <h2>Lượng calo dự đoán tiêu hao:</h2>
+    <div class="calories-val" id="calo-result">0</div>
+  </div>
+</div>
+
+<script>
+  async function predictCalo() {
+    const time = document.getElementById('time').value;
+    const steps = document.getElementById('steps').value;
+
+    if(!time || !steps) {
+        alert("Vui lòng nhập đầy đủ thông tin");
+        return;
+    }
+
+    try {
+      const response = await fetch('http://127.0.0.1:5000/predict', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ time, steps })
+      });
+      
+      const data = await response.json();
+      if(data.success) {
+        document.getElementById('result-card').style.display = 'block';
+        document.getElementById('calo-result').textContent = data.calories + " kcal";
+      } else {
+        alert("Lỗi: " + data.error);
+      }
+    } catch (e) {
+      alert("Không thể kết nối Backend. Hãy chắc chắn app.py đang chạy!");
+    }
+  }
+</script>
+</body>
+</html>
